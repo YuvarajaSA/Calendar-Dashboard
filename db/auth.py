@@ -91,29 +91,76 @@ def login_with_password(email: str, password: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+# def login_with_google() -> str:
+#     """
+#     Return the Google OAuth URL.
+#     The user must be redirected to this URL.
+#     After auth, Supabase redirects back to the app URL with a token.
+#     """
+#     sb = get_client()
+#     resp = sb.auth.sign_in_with_oauth({
+#         "provider": "google",
+#         "options":  {"redirect_to": st.secrets["supabase"].get("redirect_url", "")},
+#     })
+#     return resp.url if resp else ""
+
+
 def login_with_google() -> str:
-    """
-    Return the Google OAuth URL.
-    The user must be redirected to this URL.
-    After auth, Supabase redirects back to the app URL with a token.
-    """
     sb = get_client()
+    redirect = st.secrets["supabase"].get("redirect_url", "")
     resp = sb.auth.sign_in_with_oauth({
         "provider": "google",
-        "options":  {"redirect_to": st.secrets["supabase"].get("redirect_url", "")},
+        "options": {
+            "redirect_to":          redirect,
+            "query_params": {
+                "access_type": "offline",
+                "prompt":      "consent",
+            },
+            # Force tokens in URL query params not hash
+            "skip_browser_redirect": False,
+        },
     })
     return resp.url if resp else ""
+
+# def handle_oauth_callback() -> bool:
+#     """
+#     If Supabase redirected back with a token in the URL query params,
+#     exchange it for a session and store it.
+#     """
+#     params = st.query_params
+#     access_token  = params.get("access_token")
+#     refresh_token = params.get("refresh_token")
+
+#     if not access_token:
+#         return False
+
+#     sb = get_client()
+#     try:
+#         resp = sb.auth.set_session(access_token, refresh_token)
+#         if resp.session:
+#             _set_session(resp.session)
+#             st.session_state.pop("auth_role", None)
+#             # Clean URL
+#             st.query_params.clear()
+#             return True
+#     except Exception:
+#         pass
+#     return False
 
 
 def handle_oauth_callback() -> bool:
     """
-    If Supabase redirected back with a token in the URL query params,
-    exchange it for a session and store it.
+    Supabase redirects back with tokens as URL hash fragments (#) or 
+    query params (?). Streamlit can only read query params.
+    Supabase by default uses hash fragments — we need to switch it to
+    query params in the OAuth call.
     """
     params = st.query_params
+    
+    # Supabase sends these after successful OAuth
     access_token  = params.get("access_token")
-    refresh_token = params.get("refresh_token")
-
+    refresh_token = params.get("refresh_token", "")
+    
     if not access_token:
         return False
 
@@ -123,13 +170,12 @@ def handle_oauth_callback() -> bool:
         if resp.session:
             _set_session(resp.session)
             st.session_state.pop("auth_role", None)
-            # Clean URL
+            # Clear the tokens from the URL
             st.query_params.clear()
             return True
-    except Exception:
-        pass
+    except Exception as e:
+        st.error(f"Session error: {e}")
     return False
-
 
 def logout() -> None:
     sb = get_client()
